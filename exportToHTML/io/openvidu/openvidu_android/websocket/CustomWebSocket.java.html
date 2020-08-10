@@ -1,0 +1,676 @@
+<html>
+<head>
+<title>CustomWebSocket.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #000080; font-weight: bold;}
+.s1 { color: #000000;}
+.s2 { color: #808080; font-style: italic;}
+.s3 { color: #008000; font-weight: bold;}
+.s4 { color: #0000ff;}
+.s5 { color: #808080; font-weight: bold; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+CustomWebSocket.java</font>
+</center></td></tr></table>
+<pre><span class="s0">package </span>io.openvidu.openvidu_android.websocket;
+
+<span class="s0">import </span>android.os.AsyncTask;
+<span class="s0">import </span>android.os.Handler;
+<span class="s0">import </span>android.util.Log;
+<span class="s0">import </span>android.widget.Toast;
+
+<span class="s0">import </span>com.neovisionaries.ws.client.ThreadType;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocket;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocketException;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocketFactory;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocketFrame;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocketListener;
+<span class="s0">import </span>com.neovisionaries.ws.client.WebSocketState;
+
+<span class="s0">import </span>org.json.JSONArray;
+<span class="s0">import </span>org.json.JSONException;
+<span class="s0">import </span>org.json.JSONObject;
+<span class="s0">import </span>org.webrtc.IceCandidate;
+<span class="s0">import </span>org.webrtc.MediaConstraints;
+<span class="s2">//import org.webrtc.MediaStream;</span>
+<span class="s0">import </span>org.webrtc.PeerConnection;
+<span class="s0">import </span>org.webrtc.RtpTransceiver;
+<span class="s0">import </span>org.webrtc.SessionDescription;
+
+<span class="s0">import </span>java.io.IOException;
+<span class="s0">import </span>java.net.MalformedURLException;
+<span class="s0">import </span>java.net.URL;
+<span class="s0">import </span>java.security.KeyManagementException;
+<span class="s0">import </span>java.security.NoSuchAlgorithmException;
+<span class="s0">import </span>java.security.cert.CertificateException;
+<span class="s0">import </span>java.security.cert.X509Certificate;
+<span class="s0">import </span>java.util.Arrays;
+<span class="s0">import </span>java.util.Collections;
+<span class="s0">import </span>java.util.HashMap;
+<span class="s0">import </span>java.util.List;
+<span class="s0">import </span>java.util.Map;
+<span class="s0">import </span>java.util.Set;
+<span class="s0">import </span>java.util.concurrent.ConcurrentHashMap;
+<span class="s0">import </span>java.util.concurrent.ScheduledThreadPoolExecutor;
+<span class="s0">import </span>java.util.concurrent.TimeUnit;
+<span class="s0">import </span>java.util.concurrent.atomic.AtomicInteger;
+
+<span class="s0">import </span>javax.net.ssl.SSLContext;
+<span class="s0">import </span>javax.net.ssl.TrustManager;
+<span class="s0">import </span>javax.net.ssl.X509TrustManager;
+
+<span class="s0">import </span>io.openvidu.openvidu_android.activities.SessionActivity;
+<span class="s0">import </span>io.openvidu.openvidu_android.constants.JsonConstants;
+<span class="s0">import </span>io.openvidu.openvidu_android.observers.CustomSdpObserver;
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.LocalParticipant;
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.Participant;
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.RemoteParticipant;
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.Session;
+
+<span class="s0">public class </span>CustomWebSocket <span class="s0">extends </span>AsyncTask&lt;SessionActivity, Void, Void&gt;
+        <span class="s0">implements </span>WebSocketListener {
+
+    <span class="s0">private final </span>String TAG = <span class="s3">&quot;CustomWebSocketListener&quot;</span>;
+    <span class="s0">private final int </span>PING_MESSAGE_INTERVAL = <span class="s4">5</span>;
+    <span class="s0">private final </span>TrustManager[] trustManagers = <span class="s0">new </span>TrustManager[]{<span class="s0">new </span>X509TrustManager() {
+        @Override
+        <span class="s0">public </span>X509Certificate[] getAcceptedIssuers() {
+            <span class="s0">return new </span>X509Certificate[<span class="s4">0</span>];
+        }
+
+        @Override
+        <span class="s0">public void </span>checkServerTrusted(<span class="s0">final </span>X509Certificate[] chain, <span class="s0">final </span>String authType)
+                <span class="s0">throws </span>CertificateException {
+            Log.i(TAG, <span class="s3">&quot;: authType: &quot; </span>+ authType);
+        }
+
+        @Override
+        <span class="s0">public void </span>checkClientTrusted(<span class="s0">final </span>X509Certificate[] chain, <span class="s0">final </span>String authType)
+                <span class="s0">throws </span>CertificateException {
+            Log.i(TAG, <span class="s3">&quot;: authType: &quot; </span>+ authType);
+        }
+    }};
+    <span class="s0">private </span>AtomicInteger RPC_ID = <span class="s0">new </span>AtomicInteger(<span class="s4">0</span>);
+    <span class="s0">private </span>AtomicInteger ID_PING = <span class="s0">new </span>AtomicInteger(-<span class="s4">1</span>);
+    <span class="s0">private </span>AtomicInteger ID_JOINROOM = <span class="s0">new </span>AtomicInteger(-<span class="s4">1</span>);
+    <span class="s0">private </span>AtomicInteger ID_LEAVEROOM = <span class="s0">new </span>AtomicInteger(-<span class="s4">1</span>);
+    <span class="s0">private </span>AtomicInteger ID_PUBLISHVIDEO = <span class="s0">new </span>AtomicInteger(-<span class="s4">1</span>);
+    <span class="s0">private </span>Map&lt;Integer, String&gt; IDS_RECEIVEVIDEO = <span class="s0">new </span>ConcurrentHashMap&lt;&gt;();
+    <span class="s0">private </span>Set&lt;Integer&gt; IDS_ONICECANDIDATE = Collections.newSetFromMap(<span class="s0">new </span>ConcurrentHashMap&lt;&gt;());
+    <span class="s0">private </span>Session session;
+    <span class="s0">private </span>String openviduUrl;
+    <span class="s0">private </span>SessionActivity activity;
+    <span class="s0">private </span>WebSocket websocket;
+    <span class="s0">private boolean </span>websocketCancelled = <span class="s0">false</span>;
+
+    <span class="s0">public </span>CustomWebSocket(Session session, String openviduUrl, SessionActivity activity) {
+        <span class="s0">this</span>.session = session;
+        <span class="s0">this</span>.openviduUrl = openviduUrl;
+        <span class="s0">this</span>.activity = activity;
+    }
+
+    @Override
+    <span class="s0">public void </span>onTextMessage(WebSocket websocket, String text) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Text Message &quot; </span>+ text);
+        JSONObject json = <span class="s0">new </span>JSONObject(text);
+        <span class="s0">if </span>(json.has(JsonConstants.RESULT)) {<span class="s2">//Key中包括RESULT</span>
+            handleServerResponse(json);
+        } <span class="s0">else </span>{
+            handleServerEvent(json);
+        }
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 本地回调onTextMessage方法</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">json</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">JSONException</span>
+     <span class="s2">*/</span>
+    <span class="s0">private void </span>handleServerResponse(JSONObject json) <span class="s0">throws</span>
+            JSONException {
+        <span class="s0">final int </span>rpcId = json.getInt(JsonConstants.ID);
+        JSONObject result = <span class="s0">new </span>JSONObject(json.getString(JsonConstants.RESULT));
+
+        <span class="s0">if </span>(result.has(<span class="s3">&quot;value&quot;</span>) &amp;&amp; result.getString(<span class="s3">&quot;value&quot;</span>).equals(<span class="s3">&quot;pong&quot;</span>)) {
+            <span class="s2">// Response to ping</span>
+            Log.i(TAG, <span class="s3">&quot;pong&quot;</span>);
+
+        } <span class="s0">else if </span>(rpcId == <span class="s0">this</span>.ID_JOINROOM.get()) {
+            <span class="s2">// Response to joinRoom</span>
+            activity.viewToConnectedState();
+
+            <span class="s0">final </span>LocalParticipant localParticipant = <span class="s0">this</span>.session.getLocalParticipant();
+            <span class="s0">final </span>String localConnectionId = result.getString(JsonConstants.ID);
+            localParticipant.setConnectionId(localConnectionId);
+            <span class="s2">//本端链接</span>
+            PeerConnection localPeerConnection = session.createLocalPeerConnection();
+            <span class="s2">//设置音频轨道</span>
+            localPeerConnection.addTrack(localParticipant.getAudioTrack());
+            <span class="s2">//设置视频轨道</span>
+            localPeerConnection.addTrack(localParticipant.getVideoTrack());
+
+            <span class="s0">for </span>(RtpTransceiver transceiver : localPeerConnection.getTransceivers()) {
+                <span class="s2">//设置RTP转接方向为仅仅发送</span>
+                transceiver.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY);
+            }
+            <span class="s2">//</span>
+            localParticipant.setPeerConnection(localPeerConnection);
+
+            MediaConstraints sdpConstraints = <span class="s0">new </span>MediaConstraints();
+            sdpConstraints.mandatory.add(<span class="s0">new </span>MediaConstraints.KeyValuePair(<span class="s3">&quot;offerToReceiveAudio&quot;</span>, <span class="s3">&quot;true&quot;</span>));
+            sdpConstraints.mandatory.add(<span class="s0">new </span>MediaConstraints.KeyValuePair(<span class="s3">&quot;offerToReceiveVideo&quot;</span>, <span class="s3">&quot;true&quot;</span>));
+            <span class="s2">//本端设置会话设置sdp，提交会话</span>
+            session.createLocalOffer(sdpConstraints);
+
+            <span class="s0">if </span>(result.getJSONArray(JsonConstants.VALUE).length() &gt; <span class="s4">0</span>) {
+                <span class="s2">// There were users already connected to the session</span>
+                addRemoteParticipantsAlreadyInRoom(result);
+            }
+
+        } <span class="s0">else if </span>(rpcId == <span class="s0">this</span>.ID_LEAVEROOM.get()) {<span class="s2">//</span>
+            <span class="s2">// Response to leaveRoom</span>
+            <span class="s0">if </span>(websocket.isOpen()) {
+                websocket.disconnect();
+            }
+
+        } <span class="s0">else if </span>(rpcId == <span class="s0">this</span>.ID_PUBLISHVIDEO.get()) {<span class="s2">//发布视频</span>
+            <span class="s2">// Response to publishVideo</span>
+            SessionDescription sessionDescription =
+                    <span class="s0">new </span>SessionDescription(SessionDescription.Type.ANSWER, result.getString(<span class="s3">&quot;sdpAnswer&quot;</span>));
+            <span class="s2">//本端的远端应答</span>
+            <span class="s0">this</span>.session.getLocalParticipant().getPeerConnection().
+                    setRemoteDescription(<span class="s0">new </span>CustomSdpObserver(<span class="s3">&quot;localSetRemoteDesc&quot;</span>), sessionDescription);
+
+        } <span class="s0">else if </span>(<span class="s0">this</span>.IDS_RECEIVEVIDEO.containsKey(rpcId)) {<span class="s2">//接收</span>
+            <span class="s2">// Response to receiveVideoFrom</span>
+            SessionDescription sessionDescription =
+                    <span class="s0">new </span>SessionDescription(SessionDescription.Type.ANSWER, result.getString(<span class="s3">&quot;sdpAnswer&quot;</span>));
+            <span class="s2">//远端应答</span>
+            session.getRemoteParticipant(IDS_RECEIVEVIDEO.remove(rpcId)).getPeerConnection().
+                    setRemoteDescription(<span class="s0">new </span>CustomSdpObserver(<span class="s3">&quot;remoteSetRemoteDesc&quot;</span>), sessionDescription);
+
+        } <span class="s0">else if </span>(<span class="s0">this</span>.IDS_ONICECANDIDATE.contains(rpcId)) {<span class="s2">//候选者在线</span>
+            <span class="s2">// Response to onIceCandidate</span>
+            IDS_ONICECANDIDATE.remove(rpcId);
+
+        } <span class="s0">else </span>{
+            Log.e(TAG, <span class="s3">&quot;Unrecognized server response: &quot; </span>+ result);
+        }
+    }
+
+    <span class="s0">public void </span>joinRoom() {
+        Map&lt;String, String&gt; joinRoomParams = <span class="s0">new </span>HashMap&lt;&gt;();
+        joinRoomParams.put(JsonConstants.METADATA, <span class="s3">&quot;{</span><span class="s0">\&quot;</span><span class="s3">clientData</span><span class="s0">\&quot;</span><span class="s3">: </span><span class="s0">\&quot;</span><span class="s3">&quot; </span>+
+                <span class="s0">this</span>.session.getLocalParticipant().getParticipantName() + <span class="s3">&quot;</span><span class="s0">\&quot;</span><span class="s3">}&quot;</span>);
+        joinRoomParams.put(<span class="s3">&quot;secret&quot;</span>, <span class="s3">&quot;&quot;</span>);
+        joinRoomParams.put(<span class="s3">&quot;session&quot;</span>, <span class="s0">this</span>.session.getId());
+        joinRoomParams.put(<span class="s3">&quot;platform&quot;</span>, <span class="s3">&quot;Android &quot; </span>+ android.os.Build.VERSION.SDK_INT);
+        joinRoomParams.put(<span class="s3">&quot;token&quot;</span>, <span class="s0">this</span>.session.getToken());
+        <span class="s0">this</span>.ID_JOINROOM.set(<span class="s0">this</span>.sendJson(JsonConstants.JOINROOM_METHOD, joinRoomParams));
+    }
+
+    <span class="s0">public void </span>leaveRoom() {
+        <span class="s0">this</span>.ID_LEAVEROOM.set(<span class="s0">this</span>.sendJson(JsonConstants.LEAVEROOM_METHOD));
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 发布视频</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">sessionDescription</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>publishVideo(SessionDescription sessionDescription) {
+        Map&lt;String, String&gt; publishVideoParams = <span class="s0">new </span>HashMap&lt;&gt;();
+        publishVideoParams.put(<span class="s3">&quot;audioActive&quot;</span>, <span class="s3">&quot;true&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;videoActive&quot;</span>, <span class="s3">&quot;true&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;doLoopback&quot;</span>, <span class="s3">&quot;false&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;frameRate&quot;</span>, <span class="s3">&quot;30&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;hasAudio&quot;</span>, <span class="s3">&quot;true&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;hasVideo&quot;</span>, <span class="s3">&quot;true&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;typeOfVideo&quot;</span>, <span class="s3">&quot;CAMERA&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;videoDimensions&quot;</span>, <span class="s3">&quot;{</span><span class="s0">\&quot;</span><span class="s3">width</span><span class="s0">\&quot;</span><span class="s3">:320, </span><span class="s0">\&quot;</span><span class="s3">height</span><span class="s0">\&quot;</span><span class="s3">:240}&quot;</span>);
+        publishVideoParams.put(<span class="s3">&quot;sdpOffer&quot;</span>, sessionDescription.description);
+        <span class="s0">this</span>.ID_PUBLISHVIDEO.set(<span class="s0">this</span>.sendJson(JsonConstants.PUBLISHVIDEO_METHOD,
+                publishVideoParams));
+    }
+
+    <span class="s0">public void </span>receiveVideoFrom(SessionDescription sessionDescription,
+                                 RemoteParticipant remoteParticipant, String streamId) {
+        Map&lt;String, String&gt; receiveVideoFromParams = <span class="s0">new </span>HashMap&lt;&gt;();
+        receiveVideoFromParams.put(<span class="s3">&quot;sdpOffer&quot;</span>, sessionDescription.description);
+        receiveVideoFromParams.put(<span class="s3">&quot;sender&quot;</span>, streamId);
+        <span class="s0">this</span>.IDS_RECEIVEVIDEO.put(<span class="s0">this</span>.sendJson(JsonConstants.RECEIVEVIDEO_METHOD, receiveVideoFromParams),
+                remoteParticipant.getConnectionId());
+    }
+
+    <span class="s0">public void </span>onIceCandidate(IceCandidate iceCandidate, String endpointName) {
+        Map&lt;String, String&gt; onIceCandidateParams = <span class="s0">new </span>HashMap&lt;&gt;();
+        <span class="s0">if </span>(endpointName != <span class="s0">null</span>) {
+            onIceCandidateParams.put(<span class="s3">&quot;endpointName&quot;</span>, endpointName);
+        }
+        onIceCandidateParams.put(<span class="s3">&quot;candidate&quot;</span>, iceCandidate.sdp);
+        onIceCandidateParams.put(<span class="s3">&quot;sdpMid&quot;</span>, iceCandidate.sdpMid);
+        onIceCandidateParams.put(<span class="s3">&quot;sdpMLineIndex&quot;</span>, Integer.toString(iceCandidate.sdpMLineIndex));
+        <span class="s0">this</span>.IDS_ONICECANDIDATE.add(<span class="s0">this</span>.sendJson(JsonConstants.ONICECANDIDATE_METHOD, onIceCandidateParams));
+    }
+
+    <span class="s0">private void </span>handleServerEvent(JSONObject json) <span class="s0">throws </span>JSONException {
+        <span class="s0">if </span>(!json.has(JsonConstants.PARAMS)) {
+            Log.e(TAG, <span class="s3">&quot;No params &quot; </span>+ json.toString());
+        } <span class="s0">else </span>{
+            <span class="s0">final </span>JSONObject params = <span class="s0">new </span>JSONObject(json.getString(JsonConstants.PARAMS));
+            String method = json.getString(JsonConstants.METHOD);
+            <span class="s0">switch </span>(method) {
+                <span class="s0">case </span>JsonConstants.ICE_CANDIDATE:
+                    <span class="s2">//候选者事件</span>
+                    iceCandidateEvent(params);
+                    <span class="s0">break</span>;
+                <span class="s0">case </span>JsonConstants.PARTICIPANT_JOINED:
+                    <span class="s2">//参与者链接</span>
+                    participantJoinedEvent(params);
+                    <span class="s0">break</span>;
+                <span class="s0">case </span>JsonConstants.PARTICIPANT_PUBLISHED:
+                    <span class="s2">//参与者已经发布</span>
+                    participantPublishedEvent(params);
+                    <span class="s0">break</span>;
+                <span class="s0">case </span>JsonConstants.PARTICIPANT_LEFT:
+                    <span class="s2">//参与者离开事件</span>
+                    participantLeftEvent(params);
+                    <span class="s0">break</span>;
+                <span class="s0">default</span>:
+                    <span class="s0">throw new </span>JSONException(<span class="s3">&quot;Unknown method: &quot; </span>+ method);
+            }
+        }
+    }
+
+    <span class="s0">public int </span>sendJson(String method) {
+        <span class="s0">return this</span>.sendJson(method, <span class="s0">new </span>HashMap&lt;&gt;());
+    }
+
+    <span class="s0">public synchronized int </span>sendJson(String method, Map&lt;String, String&gt; params) {
+        <span class="s0">final int </span>id = RPC_ID.get();
+        JSONObject jsonObject = <span class="s0">new </span>JSONObject();
+        <span class="s0">try </span>{
+            JSONObject paramsJson = <span class="s0">new </span>JSONObject();
+            <span class="s0">for </span>(Map.Entry&lt;String, String&gt; param : params.entrySet()) {
+                paramsJson.put(param.getKey(), param.getValue());
+            }
+            jsonObject.put(<span class="s3">&quot;jsonrpc&quot;</span>, JsonConstants.JSON_RPCVERSION);
+            jsonObject.put(<span class="s3">&quot;method&quot;</span>, method);
+            jsonObject.put(<span class="s3">&quot;id&quot;</span>, id);
+            jsonObject.put(<span class="s3">&quot;params&quot;</span>, paramsJson);
+        } <span class="s0">catch </span>(JSONException e) {
+            Log.i(TAG, <span class="s3">&quot;JSONException raised on sendJson&quot;</span>, e);
+            <span class="s0">return </span>-<span class="s4">1</span>;
+        }
+        <span class="s0">this</span>.websocket.sendText(jsonObject.toString());
+        RPC_ID.incrementAndGet();
+        <span class="s0">return </span>id;
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 远端候补者操作，实例化远端候补者</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">result</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">JSONException</span>
+     <span class="s2">*/</span>
+    <span class="s0">private void </span>addRemoteParticipantsAlreadyInRoom(JSONObject result) <span class="s0">throws</span>
+            JSONException {
+        <span class="s0">for </span>(<span class="s0">int </span>i = <span class="s4">0</span>; i &lt; result.getJSONArray(JsonConstants.VALUE).length(); i++) {
+            JSONObject participantJson = result.getJSONArray(JsonConstants.VALUE).getJSONObject(i);
+            RemoteParticipant remoteParticipant = <span class="s0">this</span>.newRemoteParticipantAux(participantJson);
+            <span class="s0">try </span>{
+                JSONArray streams = participantJson.getJSONArray(<span class="s3">&quot;streams&quot;</span>);
+                <span class="s0">for </span>(<span class="s0">int </span>j = <span class="s4">0</span>; j &lt; streams.length(); j++) {
+                    JSONObject stream = streams.getJSONObject(<span class="s4">0</span>);
+                    String streamId = stream.getString(<span class="s3">&quot;id&quot;</span>);
+                    <span class="s0">this</span>.subscribeAux(remoteParticipant, streamId);
+                }
+            } <span class="s0">catch </span>(Exception e) {
+                <span class="s2">//Sometimes when we enter in room the other participants have no stream</span>
+                <span class="s2">//We catch that in this way the iteration of participants doesn't stop</span>
+                Log.e(TAG, <span class="s3">&quot;Error in addRemoteParticipantsAlreadyInRoom: &quot; </span>+ e.getLocalizedMessage());
+            }
+        }
+    }
+
+    <span class="s0">private void </span>iceCandidateEvent(JSONObject params) <span class="s0">throws </span>JSONException {
+        IceCandidate iceCandidate = <span class="s0">new </span>IceCandidate(params.getString(<span class="s3">&quot;sdpMid&quot;</span>),
+                params.getInt(<span class="s3">&quot;sdpMLineIndex&quot;</span>), params.getString(<span class="s3">&quot;candidate&quot;</span>));
+        <span class="s0">final </span>String connectionId = params.getString(<span class="s3">&quot;senderConnectionId&quot;</span>);
+        <span class="s0">boolean </span>isRemote = !session.getLocalParticipant().getConnectionId().equals(connectionId);
+        <span class="s0">final </span>Participant participant = isRemote ? session.getRemoteParticipant(connectionId) :
+                session.getLocalParticipant();
+        <span class="s0">final </span>PeerConnection pc = participant.getPeerConnection();
+
+        <span class="s0">switch </span>(pc.signalingState()) {
+            <span class="s0">case </span>CLOSED:
+                Log.e(<span class="s3">&quot;saveIceCandidate error&quot;</span>, <span class="s3">&quot;PeerConnection object is closed&quot;</span>);
+                <span class="s0">break</span>;
+            <span class="s0">case </span>STABLE:
+                <span class="s0">if </span>(pc.getRemoteDescription() != <span class="s0">null</span>) {
+                    participant.getPeerConnection().addIceCandidate(iceCandidate);
+                } <span class="s0">else </span>{
+                    participant.getIceCandidateList().add(iceCandidate);
+                }
+                <span class="s0">break</span>;
+            <span class="s0">default</span>:
+                participant.getIceCandidateList().add(iceCandidate);
+        }
+    }
+
+    <span class="s0">private void </span>participantJoinedEvent(JSONObject params) <span class="s0">throws </span>JSONException {
+        <span class="s0">this</span>.newRemoteParticipantAux(params);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 远端候补者操作</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">params</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">JSONException</span>
+     <span class="s2">*/</span>
+    <span class="s0">private void </span>participantPublishedEvent(JSONObject params) <span class="s0">throws</span>
+            JSONException {
+        String remoteParticipantId = params.getString(JsonConstants.ID);
+        <span class="s0">final </span>RemoteParticipant remoteParticipant = <span class="s0">this</span>.session.getRemoteParticipant(remoteParticipantId);
+        <span class="s0">final </span>String streamId = params.getJSONArray(<span class="s3">&quot;streams&quot;</span>).
+                getJSONObject(<span class="s4">0</span>).getString(<span class="s3">&quot;id&quot;</span>);
+        <span class="s0">this</span>.subscribeAux(remoteParticipant, streamId);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 远端候补者操作</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">params</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">JSONException</span>
+     <span class="s2">*/</span>
+    <span class="s0">private void </span>participantLeftEvent(JSONObject params) <span class="s0">throws </span>JSONException {
+        <span class="s0">final </span>RemoteParticipant remoteParticipant =
+                <span class="s0">this</span>.session.removeRemoteParticipant(params.getString(<span class="s3">&quot;connectionId&quot;</span>));
+        remoteParticipant.dispose();
+        Handler mainHandler = <span class="s0">new </span>Handler(activity.getMainLooper());
+        Runnable myRunnable = () -&gt; session.removeView(remoteParticipant.getView());
+        mainHandler.post(myRunnable);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 实例化远端候补者操作</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">participantJson</span>
+     <span class="s2">* </span><span class="s5">@return</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">JSONException</span>
+     <span class="s2">*/</span>
+    <span class="s0">private </span>RemoteParticipant newRemoteParticipantAux(JSONObject participantJson) <span class="s0">throws </span>JSONException {
+        <span class="s0">final </span>String connectionId = participantJson.getString(JsonConstants.ID);
+        String participantName = <span class="s3">&quot;&quot;</span>;
+        <span class="s0">if </span>(participantJson.getString(JsonConstants.METADATA) != <span class="s0">null</span>) {
+            String jsonStringified = participantJson.getString(JsonConstants.METADATA);
+            <span class="s0">try </span>{
+                JSONObject json = <span class="s0">new </span>JSONObject(jsonStringified);
+                String clientData = json.getString(<span class="s3">&quot;clientData&quot;</span>);
+                <span class="s0">if </span>(clientData != <span class="s0">null</span>) {
+                    participantName = clientData;
+                }
+            } <span class="s0">catch</span>(JSONException e) {
+                participantName = jsonStringified;
+            }
+        }
+        <span class="s2">//实例化RemoteParticipant</span>
+        <span class="s0">final </span>RemoteParticipant remoteParticipant = <span class="s0">new </span>RemoteParticipant(connectionId,
+                participantName, <span class="s0">this</span>.session);
+        <span class="s2">//设置视图的创建远程候选者</span>
+        <span class="s0">this</span>.activity.createRemoteParticipantVideo(remoteParticipant);
+        <span class="s2">//远端SDP设置</span>
+        <span class="s0">this</span>.session.createRemotePeerConnection(remoteParticipant.getConnectionId());
+        <span class="s0">return </span>remoteParticipant;
+    }
+
+    <span class="s0">private void </span>subscribeAux(RemoteParticipant remoteParticipant, String streamId) {
+        MediaConstraints sdpConstraints = <span class="s0">new </span>MediaConstraints();
+        sdpConstraints.mandatory.add(<span class="s0">new </span>MediaConstraints.KeyValuePair(<span class="s3">&quot;offerToReceiveAudio&quot;</span>, <span class="s3">&quot;true&quot;</span>));
+        sdpConstraints.mandatory.add(<span class="s0">new </span>MediaConstraints.KeyValuePair(<span class="s3">&quot;offerToReceiveVideo&quot;</span>, <span class="s3">&quot;true&quot;</span>));
+
+        remoteParticipant.getPeerConnection().createOffer(<span class="s0">new </span>CustomSdpObserver(<span class="s3">&quot;remote offer sdp&quot;</span>) {
+            @Override
+            <span class="s0">public void </span>onCreateSuccess(SessionDescription sessionDescription) {
+                <span class="s0">super</span>.onCreateSuccess(sessionDescription);
+                remoteParticipant.getPeerConnection().setLocalDescription(<span class="s0">new</span>
+                        CustomSdpObserver(<span class="s3">&quot;remoteSetLocalDesc&quot;</span>), sessionDescription);
+                receiveVideoFrom(sessionDescription, remoteParticipant, streamId);
+            }
+
+            @Override
+            <span class="s0">public void </span>onCreateFailure(String s) {
+                Log.e(<span class="s3">&quot;createOffer error&quot;</span>, s);
+            }
+        }, sdpConstraints);
+    }
+
+    <span class="s0">public void </span>setWebsocketCancelled(<span class="s0">boolean </span>websocketCancelled) {
+        <span class="s0">this</span>.websocketCancelled = websocketCancelled;
+    }
+
+    <span class="s0">public void </span>disconnect() {
+        <span class="s0">this</span>.websocket.disconnect();
+    }
+
+    @Override
+    <span class="s0">public void </span>onStateChanged(WebSocket websocket, WebSocketState newState) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;State changed: &quot; </span>+ newState.name());
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 建立链接时则登录房间</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">ws</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">headers</span>
+     <span class="s2">* </span><span class="s5">@throws </span><span class="s2">Exception</span>
+     <span class="s2">*/</span>
+    @Override
+    <span class="s0">public void </span>onConnected(WebSocket ws, Map&lt;String, List&lt;String&gt;&gt; headers) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Connected&quot;</span>);
+        pingMessageHandler();
+        <span class="s0">this</span>.joinRoom();
+    }
+
+    @Override
+    <span class="s0">public void </span>onConnectError(WebSocket websocket, WebSocketException cause) <span class="s0">throws </span>Exception {
+        Log.e(TAG, <span class="s3">&quot;Connect error: &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>onDisconnected(WebSocket websocket, WebSocketFrame
+            serverCloseFrame, WebSocketFrame clientCloseFrame, <span class="s0">boolean </span>closedByServer) <span class="s0">throws </span>Exception {
+        Log.e(TAG, <span class="s3">&quot;Disconnected &quot; </span>+ serverCloseFrame.getCloseReason() + <span class="s3">&quot; &quot; </span>+
+                clientCloseFrame.getCloseReason() + <span class="s3">&quot; &quot; </span>+ closedByServer);
+    }
+
+    @Override
+    <span class="s0">public void </span>onFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onContinuationFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Continuation Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onTextFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Text Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onBinaryFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Binary Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onCloseFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Close Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onPingFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Ping Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onPongFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Pong Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onTextMessage(WebSocket websocket, <span class="s0">byte</span>[] data) <span class="s0">throws </span>Exception {
+
+    }
+
+    @Override
+    <span class="s0">public void </span>onBinaryMessage(WebSocket websocket, <span class="s0">byte</span>[] binary) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Binary Message&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onSendingFrame(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Sending Frame&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onFrameSent(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Frame sent&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onFrameUnsent(WebSocket websocket, WebSocketFrame frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Frame unsent&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onThreadCreated(WebSocket websocket, ThreadType threadType, Thread thread) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Thread created&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onThreadStarted(WebSocket websocket, ThreadType threadType, Thread thread) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Thread started&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onThreadStopping(WebSocket websocket, ThreadType threadType, Thread thread) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Thread stopping&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onError(WebSocket websocket, WebSocketException cause) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Error!&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onFrameError(WebSocket websocket, WebSocketException cause, WebSocketFrame
+            frame) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Frame error!&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onMessageError(WebSocket websocket, WebSocketException
+            cause, List&lt;WebSocketFrame&gt; frames) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Message error! &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>onMessageDecompressionError(WebSocket websocket, WebSocketException cause,
+                                            <span class="s0">byte</span>[] compressed) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Message decompression error!&quot;</span>);
+    }
+
+    @Override
+    <span class="s0">public void </span>onTextMessageError(WebSocket websocket, WebSocketException cause, <span class="s0">byte</span>[] data) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Text message error! &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>onSendError(WebSocket websocket, WebSocketException cause, WebSocketFrame frame) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Send error! &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>onUnexpectedError(WebSocket websocket, WebSocketException cause) <span class="s0">throws</span>
+            Exception {
+        Log.i(TAG, <span class="s3">&quot;Unexpected error! &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>handleCallbackError(WebSocket websocket, Throwable cause) <span class="s0">throws </span>Exception {
+        Log.e(TAG, <span class="s3">&quot;Handle callback error! &quot; </span>+ cause);
+    }
+
+    @Override
+    <span class="s0">public void </span>onSendingHandshake(WebSocket websocket, String requestLine, List&lt;String[]&gt;
+            headers) <span class="s0">throws </span>Exception {
+        Log.i(TAG, <span class="s3">&quot;Sending Handshake! Hello!&quot;</span>);
+    }
+
+    <span class="s0">private void </span>pingMessageHandler() {
+        <span class="s0">long </span>initialDelay = <span class="s4">0L</span>;
+        ScheduledThreadPoolExecutor executor =
+                <span class="s0">new </span>ScheduledThreadPoolExecutor(<span class="s4">1</span>);
+        executor.scheduleWithFixedDelay(() -&gt; {
+            Map&lt;String, String&gt; pingParams = <span class="s0">new </span>HashMap&lt;&gt;();
+            <span class="s0">if </span>(ID_PING.get() == -<span class="s4">1</span>) {
+                <span class="s2">// First ping call</span>
+                pingParams.put(<span class="s3">&quot;interval&quot;</span>, <span class="s3">&quot;5000&quot;</span>);
+            }
+            ID_PING.set(sendJson(JsonConstants.PING_METHOD, pingParams));
+        }, initialDelay, PING_MESSAGE_INTERVAL, TimeUnit.SECONDS);
+    }
+
+    <span class="s0">private </span>String getWebSocketAddress(String openviduUrl) {
+        <span class="s0">try </span>{
+            URL url = <span class="s0">new </span>URL(openviduUrl);
+            <span class="s0">if </span>(url.getPort() &gt; -<span class="s4">1</span>)
+                <span class="s0">return </span><span class="s3">&quot;wss://&quot; </span>+ url.getHost() + <span class="s3">&quot;:&quot; </span>+ url.getPort() + <span class="s3">&quot;/openvidu&quot;</span>;
+            <span class="s0">return </span><span class="s3">&quot;wss://&quot; </span>+ url.getHost() + <span class="s3">&quot;/openvidu&quot;</span>;
+        } <span class="s0">catch </span>(MalformedURLException e) {
+            Log.e(TAG, <span class="s3">&quot;Wrong URL&quot;</span>, e);
+            e.printStackTrace();
+            <span class="s0">return </span><span class="s3">&quot;&quot;</span>;
+        }
+    }
+
+    @Override
+    <span class="s0">protected </span>Void doInBackground(SessionActivity... sessionActivities) {
+        <span class="s0">try </span>{
+            WebSocketFactory factory = <span class="s0">new </span>WebSocketFactory();
+            SSLContext sslContext = SSLContext.getInstance(<span class="s3">&quot;TLS&quot;</span>);
+            sslContext.init(<span class="s0">null</span>, trustManagers, <span class="s0">new </span>java.security.SecureRandom());
+            factory.setSSLContext(sslContext);
+            factory.setVerifyHostname(<span class="s0">false</span>);
+            websocket = factory.createSocket(getWebSocketAddress(openviduUrl));
+            websocket.addListener(<span class="s0">this</span>);
+            websocket.connect();
+        } <span class="s0">catch </span>(KeyManagementException | NoSuchAlgorithmException | IOException | WebSocketException e) {
+            Log.e(<span class="s3">&quot;WebSocket error&quot;</span>, e.getMessage());
+            Handler mainHandler = <span class="s0">new </span>Handler(activity.getMainLooper());
+            Runnable myRunnable = () -&gt; {
+                Toast toast = Toast.makeText(activity, e.getMessage(), Toast.LENGTH_LONG);
+                toast.show();
+                activity.leaveSession();
+            };
+            mainHandler.post(myRunnable);
+            websocketCancelled = <span class="s0">true</span>;
+        }
+        <span class="s0">return null</span>;
+    }
+
+    @Override
+    <span class="s0">protected void </span>onProgressUpdate(Void... progress) {
+        Log.i(TAG, <span class="s3">&quot;PROGRESS &quot; </span>+ Arrays.toString(progress));
+    }
+
+}
+</pre>
+</body>
+</html>

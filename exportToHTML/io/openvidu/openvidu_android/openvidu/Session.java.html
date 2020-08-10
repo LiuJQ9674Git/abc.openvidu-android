@@ -1,0 +1,322 @@
+<html>
+<head>
+<title>Session.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #000080; font-weight: bold;}
+.s1 { color: #000000;}
+.s2 { color: #808080; font-style: italic;}
+.s3 { color: #808080; font-weight: bold; font-style: italic;}
+.s4 { color: #008000; font-weight: bold;}
+.s5 { color: #0000ff;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+Session.java</font>
+</center></td></tr></table>
+<pre><span class="s0">package </span>io.openvidu.openvidu_android.openvidu;
+
+<span class="s0">import </span>android.util.Log;
+<span class="s0">import </span>android.view.View;
+<span class="s0">import </span>android.widget.LinearLayout;
+
+<span class="s0">import </span>io.openvidu.openvidu_android.activities.SessionActivity;
+<span class="s0">import </span>io.openvidu.openvidu_android.observers.CustomPeerConnectionObserver;
+<span class="s0">import </span>io.openvidu.openvidu_android.observers.CustomSdpObserver;
+<span class="s0">import </span>io.openvidu.openvidu_android.websocket.CustomWebSocket;
+
+<span class="s0">import </span>org.webrtc.IceCandidate;
+<span class="s0">import </span>org.webrtc.MediaConstraints;
+<span class="s0">import </span>org.webrtc.MediaStream;
+<span class="s0">import </span>org.webrtc.PeerConnection;
+<span class="s0">import </span>org.webrtc.PeerConnectionFactory;
+<span class="s0">import </span>org.webrtc.RtpReceiver;
+<span class="s0">import </span>org.webrtc.RtpTransceiver;
+<span class="s0">import </span>org.webrtc.SessionDescription;
+<span class="s0">import </span>org.webrtc.SoftwareVideoDecoderFactory;
+<span class="s0">import </span>org.webrtc.SoftwareVideoEncoderFactory;
+<span class="s0">import </span>org.webrtc.VideoDecoderFactory;
+<span class="s0">import </span>org.webrtc.VideoEncoderFactory;
+
+<span class="s0">import </span>java.util.ArrayList;
+<span class="s0">import </span>java.util.HashMap;
+<span class="s0">import </span>java.util.Iterator;
+<span class="s0">import </span>java.util.List;
+<span class="s0">import </span>java.util.Map;
+
+<span class="s2">/**</span>
+ <span class="s2">* 会话由SessionActivity负责创建与销毁</span>
+ <span class="s2">* 当获取到Tocken之后就实例化</span>
+ <span class="s2">*/</span>
+<span class="s0">public class </span>Session {
+
+    <span class="s2">/**</span>
+     <span class="s2">* 本端参与者</span>
+     <span class="s2">*/</span>
+    <span class="s0">private </span>LocalParticipant localParticipant;
+
+    <span class="s2">/**</span>
+     <span class="s2">* 远端参与者</span>
+     <span class="s2">*/</span>
+    <span class="s0">private </span>Map&lt;String, RemoteParticipant&gt; remoteParticipants = <span class="s0">new </span>HashMap&lt;&gt;();
+
+    <span class="s2">//Session标识</span>
+    <span class="s0">private </span>String id;
+
+    <span class="s2">//Token</span>
+    <span class="s0">private </span>String token;
+
+    <span class="s2">//远端容器</span>
+    <span class="s0">private </span>LinearLayout views_container;
+
+    <span class="s2">//端链接工厂</span>
+    <span class="s0">private </span>PeerConnectionFactory peerConnectionFactory;
+
+    <span class="s2">//websocket</span>
+    <span class="s0">private </span>CustomWebSocket websocket;
+
+    <span class="s2">//使用Session的活动</span>
+    <span class="s0">private </span>SessionActivity activity;
+
+    <span class="s2">/**</span>
+     <span class="s2">* SessionActivity的getTokenSuccess方法调用</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">id</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">token</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">views_container</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">activity</span>
+     <span class="s2">*/</span>
+    <span class="s0">public </span>Session(String id, String token, LinearLayout views_container, SessionActivity activity) {
+        <span class="s0">this</span>.id = id;
+        <span class="s0">this</span>.token = token;
+        <span class="s0">this</span>.views_container = views_container;
+        <span class="s0">this</span>.activity = activity;
+
+        PeerConnectionFactory.InitializationOptions.Builder optionsBuilder =
+                PeerConnectionFactory.InitializationOptions.builder(activity.getApplicationContext());
+        optionsBuilder.setEnableInternalTracer(<span class="s0">true</span>);
+        PeerConnectionFactory.InitializationOptions opt = optionsBuilder.createInitializationOptions();
+        PeerConnectionFactory.initialize(opt);
+        PeerConnectionFactory.Options options = <span class="s0">new </span>PeerConnectionFactory.Options();
+
+        <span class="s0">final </span>VideoEncoderFactory encoderFactory;
+        <span class="s0">final </span>VideoDecoderFactory decoderFactory;
+        encoderFactory = <span class="s0">new </span>SoftwareVideoEncoderFactory();
+        decoderFactory = <span class="s0">new </span>SoftwareVideoDecoderFactory();
+
+        peerConnectionFactory = PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(encoderFactory)
+                .setVideoDecoderFactory(decoderFactory)
+                .setOptions(options)
+                .createPeerConnectionFactory();
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* SessionActivity的startWebSocket</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">websocket</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>setWebSocket(CustomWebSocket websocket) {
+        <span class="s0">this</span>.websocket = websocket;
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 创建本端链接，由CustomWebSocket的handleServerResponse调用</span>
+     <span class="s2">* </span><span class="s3">@return</span>
+     <span class="s2">*/</span>
+    <span class="s0">public </span>PeerConnection createLocalPeerConnection() {
+        <span class="s2">//RTC配置</span>
+        PeerConnection.RTCConfiguration rtcConfig = configRtcConfig();
+        <span class="s2">//端链接</span>
+        PeerConnection peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig,
+                <span class="s0">new </span>CustomPeerConnectionObserver(<span class="s4">&quot;local&quot;</span>) {
+            @Override
+            <span class="s0">public void </span>onIceCandidate(IceCandidate iceCandidate) {
+                <span class="s0">super</span>.onIceCandidate(iceCandidate);
+                <span class="s2">//把交互候选者发送到服务器</span>
+                websocket.onIceCandidate(iceCandidate, localParticipant.getConnectionId());
+            }
+        });
+        <span class="s0">return </span>peerConnection;
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 由CustomWebSocket的newRemoteParticipantAux调用</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">connectionId</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>createRemotePeerConnection(<span class="s0">final </span>String connectionId) {
+        PeerConnection.RTCConfiguration rtcConfig =configRtcConfig();
+        <span class="s2">//对端链接peerConnection</span>
+        PeerConnection peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig,
+                <span class="s0">new </span>CustomPeerConnectionObserver(<span class="s4">&quot;remotePeerCreation&quot;</span>) {
+                    <span class="s2">/**</span>
+                     <span class="s2">* 候选者在PeerConnection处理之后的回调</span>
+                     <span class="s2">* </span><span class="s3">@param </span><span class="s2">iceCandidate</span>
+                     <span class="s2">*/</span>
+                    @Override
+                    <span class="s0">public void </span>onIceCandidate(IceCandidate iceCandidate) {
+                        <span class="s0">super</span>.onIceCandidate(iceCandidate);
+                        <span class="s2">//远端候选者发送到服务端</span>
+                        websocket.onIceCandidate(iceCandidate, connectionId);
+                    }
+
+                    <span class="s2">/**</span>
+                     <span class="s2">*</span>
+                     <span class="s2">* </span><span class="s3">@param </span><span class="s2">rtpReceiver Rtp接收器</span>
+                     <span class="s2">* </span><span class="s3">@param </span><span class="s2">mediaStreams 媒体流</span>
+                     <span class="s2">*/</span>
+                    @Override
+                    <span class="s0">public void </span>onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
+                        <span class="s0">super</span>.onAddTrack(rtpReceiver, mediaStreams);
+                        <span class="s2">//端链接建立之后的回调，activity设置流</span>
+                        <span class="s2">//同一个连接获取第一个媒体流</span>
+                        <span class="s2">//setRemoteMediaStream(MediaStream stream,</span>
+                        <span class="s2">//              final RemoteParticipant remoteParticipant)</span>
+                        activity.setRemoteMediaStream(mediaStreams[<span class="s5">0</span>],
+                                remoteParticipants.get(connectionId));
+                    }
+
+                    <span class="s2">/**</span>
+                     <span class="s2">* 信令处理状态变化,当信令状态到达稳定状态时，从远端参与者获取候选者，</span>
+                     <span class="s2">* 把每个参与者加入到远端参与者的端链接</span>
+                     <span class="s2">* </span><span class="s3">@param </span><span class="s2">signalingState</span>
+                     <span class="s2">*/</span>
+                    @Override
+                    <span class="s0">public void </span>onSignalingChange(PeerConnection.SignalingState signalingState) {
+                        <span class="s0">if </span>(PeerConnection.SignalingState.STABLE.equals(signalingState)) {
+                            <span class="s0">final </span>RemoteParticipant remoteParticipant = remoteParticipants.get(connectionId);
+                            Iterator&lt;IceCandidate&gt; it = remoteParticipant.getIceCandidateList().iterator();
+                            <span class="s0">while </span>(it.hasNext()) {
+                                IceCandidate candidate = it.next();
+                                remoteParticipant.getPeerConnection().addIceCandidate(candidate);
+                                it.remove();
+                            }
+                        }
+                    }
+        });
+        <span class="s2">//对端链接peerConnection定义匿名定义结束</span>
+        <span class="s2">//Add audio track to create transReceiver 本端音频加入到传输接收器</span>
+        peerConnection.addTrack(localParticipant.getAudioTrack());
+        <span class="s2">//Add video track to create transReceiver 本端视频加入到传输接收器</span>
+        peerConnection.addTrack(localParticipant.getVideoTrack());
+        <span class="s2">//对于每个Rtp传输器设置媒体的方法为仅仅接收</span>
+        <span class="s0">for </span>(RtpTransceiver transceiver : peerConnection.getTransceivers()) {
+            <span class="s2">//We set both audio and video in receive only mode</span>
+            transceiver.setDirection(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY);
+        }
+
+        <span class="s2">//连接的每个远端设置</span>
+        <span class="s0">this</span>.remoteParticipants.get(connectionId).setPeerConnection(peerConnection);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* CustomWebSocket的handleServerResponse调用调用，产生SDP的提交动作</span>
+     <span class="s2">* </span><span class="s3">@param </span><span class="s2">constraints</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>createLocalOffer(MediaConstraints constraints) {
+        <span class="s2">//本地参与者，端链接创建</span>
+        localParticipant.getPeerConnection().createOffer(<span class="s0">new </span>CustomSdpObserver(<span class="s4">&quot;local offer sdp&quot;</span>) {
+            <span class="s2">/**</span>
+             <span class="s2">* 本地参与者创建offer成功</span>
+             <span class="s2">* </span><span class="s3">@param </span><span class="s2">sessionDescription</span>
+             <span class="s2">*/</span>
+            @Override
+            <span class="s0">public void </span>onCreateSuccess(SessionDescription sessionDescription) {
+                <span class="s0">super</span>.onCreateSuccess(sessionDescription);
+                Log.i(<span class="s4">&quot;createOffer SUCCESS&quot;</span>, sessionDescription.toString());
+                <span class="s2">//本端参与者的连接设置本端的描述，WebRTC创建本地会话</span>
+                localParticipant.getPeerConnection().setLocalDescription(
+                        <span class="s0">new </span>CustomSdpObserver(<span class="s4">&quot;local set local&quot;</span>), sessionDescription);
+                <span class="s2">//websocket发布本地创建SDP的offer，发布视频</span>
+                websocket.publishVideo(sessionDescription);
+            }
+
+            @Override
+            <span class="s0">public void </span>onCreateFailure(String s) {
+                Log.e(<span class="s4">&quot;createOffer ERROR&quot;</span>, s);
+            }
+
+        }, constraints);
+    }
+
+    <span class="s0">public </span>String getId() {
+        <span class="s0">return this</span>.id;
+    }
+
+    <span class="s0">public </span>String getToken() {
+        <span class="s0">return this</span>.token;
+    }
+
+    <span class="s0">public </span>LocalParticipant getLocalParticipant() {
+        <span class="s0">return this</span>.localParticipant;
+    }
+
+    <span class="s0">public void </span>setLocalParticipant(LocalParticipant localParticipant) {
+        <span class="s0">this</span>.localParticipant = localParticipant;
+    }
+
+    <span class="s0">public </span>RemoteParticipant getRemoteParticipant(String id) {
+        <span class="s0">return this</span>.remoteParticipants.get(id);
+    }
+
+    <span class="s0">public </span>PeerConnectionFactory getPeerConnectionFactory() {
+        <span class="s0">return this</span>.peerConnectionFactory;
+    }
+
+    <span class="s0">public void </span>addRemoteParticipant(RemoteParticipant remoteParticipant) {
+        <span class="s0">this</span>.remoteParticipants.put(remoteParticipant.getConnectionId(), remoteParticipant);
+    }
+
+    <span class="s0">public </span>RemoteParticipant removeRemoteParticipant(String id) {
+        <span class="s0">return this</span>.remoteParticipants.remove(id);
+    }
+
+    <span class="s0">public void </span>leaveSession() {
+        <span class="s2">//离开</span>
+        websocket.setWebsocketCancelled(<span class="s0">true</span>);
+        <span class="s0">if </span>(websocket != <span class="s0">null</span>) {
+            websocket.leaveRoom();
+            websocket.disconnect();
+        }
+        <span class="s0">this</span>.localParticipant.dispose();
+        <span class="s0">for </span>(RemoteParticipant remoteParticipant : remoteParticipants.values()) {
+            <span class="s0">if </span>(remoteParticipant.getPeerConnection() != <span class="s0">null</span>) {
+                remoteParticipant.getPeerConnection().close();
+            }
+            <span class="s2">//</span>
+            views_container.removeView(remoteParticipant.getView());
+        }
+        <span class="s0">if </span>(peerConnectionFactory != <span class="s0">null</span>) {
+            peerConnectionFactory.dispose();
+            peerConnectionFactory = <span class="s0">null</span>;
+        }
+    }
+
+    <span class="s0">public void </span>removeView(View view) {
+        <span class="s0">this</span>.views_container.removeView(view);
+    }
+
+    <span class="s0">private </span>PeerConnection.RTCConfiguration configRtcConfig(){
+        <span class="s0">final </span>List&lt;PeerConnection.IceServer&gt; iceServers = <span class="s0">new </span>ArrayList&lt;&gt;();
+        <span class="s2">//</span>
+        PeerConnection.IceServer iceServer =
+                PeerConnection.IceServer.builder(<span class="s4">&quot;stun:stun.l.google.com:19302&quot;</span>).createIceServer();
+        iceServers.add(iceServer);
+
+        PeerConnection.RTCConfiguration rtcConfig = <span class="s0">new </span>PeerConnection.RTCConfiguration(iceServers);
+        rtcConfig.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED;
+        rtcConfig.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+        rtcConfig.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.NEGOTIATE;
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
+        rtcConfig.keyType = PeerConnection.KeyType.ECDSA;
+        rtcConfig.enableDtlsSrtp = <span class="s0">true</span>;
+        rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+
+        <span class="s0">return </span>rtcConfig;
+    }
+
+}
+</pre>
+</body>
+</html>

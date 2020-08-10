@@ -1,0 +1,151 @@
+<html>
+<head>
+<title>LocalParticipant.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #000080; font-weight: bold;}
+.s1 { color: #000000;}
+.s2 { color: #808080; font-style: italic;}
+.s3 { color: #008000; font-weight: bold;}
+.s4 { color: #0000ff;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+LocalParticipant.java</font>
+</center></td></tr></table>
+<pre><span class="s0">package </span>io.openvidu.openvidu_android.openvidu;
+
+<span class="s0">import </span>android.content.Context;
+<span class="s0">import </span>android.os.Build;
+
+<span class="s0">import </span>org.webrtc.AudioSource;
+<span class="s0">import </span>org.webrtc.Camera1Enumerator;
+<span class="s0">import </span>org.webrtc.Camera2Enumerator;
+<span class="s0">import </span>org.webrtc.CameraEnumerator;
+<span class="s0">import </span>org.webrtc.EglBase;
+<span class="s0">import </span>org.webrtc.IceCandidate;
+<span class="s0">import </span>org.webrtc.MediaConstraints;
+<span class="s0">import </span>org.webrtc.PeerConnectionFactory;
+<span class="s0">import </span>org.webrtc.SessionDescription;
+<span class="s0">import </span>org.webrtc.SurfaceTextureHelper;
+<span class="s0">import </span>org.webrtc.SurfaceViewRenderer;
+<span class="s0">import </span>org.webrtc.VideoCapturer;
+<span class="s0">import </span>org.webrtc.VideoSource;
+
+<span class="s0">import </span>java.util.ArrayList;
+<span class="s0">import </span>java.util.Collection;
+
+<span class="s2">/**</span>
+ <span class="s2">* 本地参与者实例化</span>
+ <span class="s2">*/</span>
+<span class="s0">public class </span>LocalParticipant <span class="s0">extends </span>Participant {
+
+    <span class="s0">private </span>Context context;
+    <span class="s0">private </span>SurfaceViewRenderer localVideoView;
+    <span class="s0">private </span>SurfaceTextureHelper surfaceTextureHelper;
+    <span class="s0">private </span>VideoCapturer videoCapturer;
+
+    <span class="s0">private </span>Collection&lt;IceCandidate&gt; localIceCandidates;
+    <span class="s0">private </span>SessionDescription localSessionDescription;
+
+    <span class="s0">public </span>LocalParticipant(String participantName, Session session, Context context, SurfaceViewRenderer localVideoView) {
+        <span class="s0">super</span>(participantName, session);
+        <span class="s0">this</span>.localVideoView = localVideoView;
+        <span class="s0">this</span>.localVideoView = localVideoView;
+        <span class="s0">this</span>.context = context;
+        <span class="s0">this</span>.participantName = participantName;
+        <span class="s0">this</span>.localIceCandidates = <span class="s0">new </span>ArrayList&lt;&gt;();
+        session.setLocalParticipant(<span class="s0">this</span>);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 由SessionActivity获取Token时调用</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>startCamera() {
+
+        <span class="s0">final </span>EglBase.Context eglBaseContext = EglBase.create().getEglBaseContext();
+        PeerConnectionFactory peerConnectionFactory = <span class="s0">this</span>.session.getPeerConnectionFactory();
+
+        <span class="s2">// create AudioSource</span>
+        AudioSource audioSource = peerConnectionFactory.createAudioSource(<span class="s0">new </span>MediaConstraints());
+        <span class="s0">this</span>.audioTrack = peerConnectionFactory.createAudioTrack(<span class="s3">&quot;101&quot;</span>, audioSource);
+
+        surfaceTextureHelper = SurfaceTextureHelper.create(<span class="s3">&quot;CaptureThread&quot;</span>, eglBaseContext);
+        <span class="s2">// create VideoCapturer</span>
+        VideoCapturer videoCapturer = createCameraCapturer();
+        VideoSource videoSource = peerConnectionFactory.createVideoSource(videoCapturer.isScreencast());
+        videoCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
+        videoCapturer.startCapture(<span class="s4">480</span>, <span class="s4">640</span>, <span class="s4">30</span>);
+
+        <span class="s2">// create VideoTrack</span>
+        <span class="s0">this</span>.videoTrack = peerConnectionFactory.createVideoTrack(<span class="s3">&quot;100&quot;</span>, videoSource);
+        <span class="s2">// display in localView</span>
+        <span class="s0">this</span>.videoTrack.addSink(localVideoView);
+    }
+
+    <span class="s0">private </span>VideoCapturer createCameraCapturer() {
+        CameraEnumerator enumerator;
+        <span class="s0">if </span>(Build.VERSION.SDK_INT &gt; Build.VERSION_CODES.LOLLIPOP) {
+            enumerator = <span class="s0">new </span>Camera2Enumerator(<span class="s0">this</span>.context);
+        } <span class="s0">else </span>{
+            enumerator = <span class="s0">new </span>Camera1Enumerator(<span class="s0">false</span>);
+        }
+        <span class="s0">final </span>String[] deviceNames = enumerator.getDeviceNames();
+
+        <span class="s2">// Try to find front facing camera</span>
+        <span class="s0">for </span>(String deviceName : deviceNames) {
+            <span class="s0">if </span>(enumerator.isFrontFacing(deviceName)) {
+                videoCapturer = enumerator.createCapturer(deviceName, <span class="s0">null</span>);
+                <span class="s0">if </span>(videoCapturer != <span class="s0">null</span>) {
+                    <span class="s0">return </span>videoCapturer;
+                }
+            }
+        }
+        <span class="s2">// Front facing camera not found, try something else</span>
+        <span class="s0">for </span>(String deviceName : deviceNames) {
+            <span class="s0">if </span>(!enumerator.isFrontFacing(deviceName)) {
+                videoCapturer = enumerator.createCapturer(deviceName, <span class="s0">null</span>);
+                <span class="s0">if </span>(videoCapturer != <span class="s0">null</span>) {
+                    <span class="s0">return </span>videoCapturer;
+                }
+            }
+        }
+        <span class="s0">return null</span>;
+    }
+
+    <span class="s0">public void </span>storeIceCandidate(IceCandidate iceCandidate) {
+        localIceCandidates.add(iceCandidate);
+    }
+
+    <span class="s0">public </span>Collection&lt;IceCandidate&gt; getLocalIceCandidates() {
+        <span class="s0">return this</span>.localIceCandidates;
+    }
+
+    <span class="s0">public void </span>storeLocalSessionDescription(SessionDescription sessionDescription) {
+        localSessionDescription = sessionDescription;
+    }
+
+    <span class="s0">public </span>SessionDescription getLocalSessionDescription() {
+        <span class="s0">return this</span>.localSessionDescription;
+    }
+
+    @Override
+    <span class="s0">public void </span>dispose() {
+        <span class="s0">super</span>.dispose();
+        <span class="s0">if </span>(videoTrack != <span class="s0">null</span>) {
+            videoTrack.removeSink(localVideoView);
+            videoCapturer.dispose();
+            videoCapturer = <span class="s0">null</span>;
+        }
+        <span class="s0">if </span>(surfaceTextureHelper != <span class="s0">null</span>) {
+            surfaceTextureHelper.dispose();
+            surfaceTextureHelper = <span class="s0">null</span>;
+        }
+    }
+}
+</pre>
+</body>
+</html>

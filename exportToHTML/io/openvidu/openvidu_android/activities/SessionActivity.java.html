@@ -1,0 +1,399 @@
+<html>
+<head>
+<title>SessionActivity.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #000080; font-weight: bold;}
+.s1 { color: #000000;}
+.s2 { color: #808080; font-style: italic;}
+.s3 { color: #0000ff;}
+.s4 { color: #008000; font-weight: bold;}
+.s5 { color: #808080; font-weight: bold; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+SessionActivity.java</font>
+</center></td></tr></table>
+<pre><span class="s0">package </span>io.openvidu.openvidu_android.activities;
+
+<span class="s0">import </span>android.Manifest;
+<span class="s0">import </span>android.content.pm.ActivityInfo;
+<span class="s0">import </span>android.content.pm.PackageManager;
+<span class="s0">import </span>android.os.Bundle;
+<span class="s0">import </span>android.os.Handler;
+<span class="s0">import </span>android.util.Log;
+<span class="s0">import </span>android.view.View;
+<span class="s0">import </span>android.view.ViewGroup;
+<span class="s0">import </span>android.view.WindowManager;
+<span class="s0">import </span>android.widget.Button;
+<span class="s0">import </span>android.widget.EditText;
+<span class="s0">import </span>android.widget.FrameLayout;
+<span class="s0">import </span>android.widget.LinearLayout;
+<span class="s0">import </span>android.widget.TextView;
+<span class="s0">import </span>android.widget.Toast;
+
+<span class="s0">import </span>androidx.appcompat.app.AppCompatActivity;
+<span class="s0">import </span>androidx.core.app.ActivityCompat;
+<span class="s0">import </span>androidx.core.content.ContextCompat;
+<span class="s0">import </span>androidx.fragment.app.DialogFragment;
+
+<span class="s0">import </span>org.jetbrains.annotations.NotNull;
+<span class="s0">import </span>org.json.JSONException;
+<span class="s0">import </span>org.json.JSONObject;
+<span class="s0">import </span>org.webrtc.EglBase;
+<span class="s0">import </span>org.webrtc.MediaStream;
+<span class="s0">import </span>org.webrtc.SurfaceViewRenderer;
+<span class="s0">import </span>org.webrtc.VideoTrack;
+
+<span class="s0">import </span>java.io.IOException;
+<span class="s0">import </span>java.util.Random;
+
+<span class="s0">import </span>butterknife.BindView;
+<span class="s0">import </span>butterknife.ButterKnife;
+<span class="s0">import </span>io.openvidu.openvidu_android.R;
+<span class="s0">import </span>io.openvidu.openvidu_android.fragments.PermissionsDialogFragment;
+
+<span class="s2">//本端参与者</span>
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.LocalParticipant;
+<span class="s2">//远端参与者</span>
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.RemoteParticipant;
+<span class="s2">//会话</span>
+<span class="s0">import </span>io.openvidu.openvidu_android.openvidu.Session;
+<span class="s2">//</span>
+<span class="s0">import </span>io.openvidu.openvidu_android.utils.CustomHttpClient;
+<span class="s2">//WebSocket</span>
+<span class="s0">import </span>io.openvidu.openvidu_android.websocket.CustomWebSocket;
+
+<span class="s0">import </span>okhttp3.Call;
+<span class="s0">import </span>okhttp3.Callback;
+<span class="s0">import </span>okhttp3.MediaType;
+<span class="s0">import </span>okhttp3.RequestBody;
+<span class="s0">import </span>okhttp3.Response;
+
+<span class="s0">public class </span>SessionActivity <span class="s0">extends </span>AppCompatActivity {
+
+    <span class="s0">private static final int </span>MY_PERMISSIONS_REQUEST_CAMERA = <span class="s3">100</span>;
+    <span class="s0">private static final int </span>MY_PERMISSIONS_REQUEST_RECORD_AUDIO = <span class="s3">101</span>;
+    <span class="s0">private static final int </span>MY_PERMISSIONS_REQUEST = <span class="s3">102</span>;
+    <span class="s0">private final </span>String TAG = <span class="s4">&quot;SessionActivity&quot;</span>;
+    @BindView(R.id.views_container)
+    LinearLayout views_container;
+    @BindView(R.id.start_finish_call)
+    Button start_finish_call;
+    @BindView(R.id.session_name)
+    EditText session_name;
+    @BindView(R.id.participant_name)
+    EditText participant_name;
+    @BindView(R.id.openvidu_url)
+    EditText openvidu_url;
+    @BindView(R.id.openvidu_secret)
+    EditText openvidu_secret;
+    @BindView(R.id.local_gl_surface_view)
+    SurfaceViewRenderer localVideoView;
+    @BindView(R.id.main_participant)
+    TextView main_participant;
+    @BindView(R.id.peer_container)
+    FrameLayout peer_container;
+
+    <span class="s0">private </span>String OPENVIDU_URL;
+    <span class="s0">private </span>String OPENVIDU_SECRET;
+    <span class="s0">private </span>Session session;
+    <span class="s0">private </span>CustomHttpClient httpClient;
+
+    @Override
+    <span class="s0">protected void </span>onCreate(Bundle savedInstanceState) {
+        <span class="s0">super</span>.onCreate(savedInstanceState);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        setContentView(R.layout.activity_main);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+        askForPermissions();
+        ButterKnife.bind(<span class="s0">this</span>);
+        Random random = <span class="s0">new </span>Random();
+        <span class="s0">int </span>randomIndex = random.nextInt(<span class="s3">100</span>);
+        participant_name.setText(participant_name.getText().append(String.valueOf(randomIndex)));
+    }
+
+    <span class="s0">public void </span>askForPermissions() {
+        <span class="s0">if </span>((ContextCompat.checkSelfPermission(<span class="s0">this</span>, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) &amp;&amp;
+                (ContextCompat.checkSelfPermission(<span class="s0">this</span>, Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED)) {
+            ActivityCompat.requestPermissions(<span class="s0">this</span>,
+                    <span class="s0">new </span>String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO},
+                    MY_PERMISSIONS_REQUEST);
+        } <span class="s0">else if </span>(ContextCompat.checkSelfPermission(<span class="s0">this</span>,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(<span class="s0">this</span>,
+                    <span class="s0">new </span>String[]{Manifest.permission.RECORD_AUDIO},
+                    MY_PERMISSIONS_REQUEST_RECORD_AUDIO);
+        } <span class="s0">else if </span>(ContextCompat.checkSelfPermission(<span class="s0">this</span>, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(<span class="s0">this</span>,
+                    <span class="s0">new </span>String[]{Manifest.permission.CAMERA},
+                    MY_PERMISSIONS_REQUEST_CAMERA);
+        }
+    }
+
+    <span class="s0">public void </span>buttonPressed(View view) {
+        <span class="s0">if </span>(start_finish_call.getText().equals(getResources().getString(R.string.hang_up))) {
+            <span class="s2">// Already connected to a session</span>
+            leaveSession();
+            <span class="s0">return</span>;
+        }
+        <span class="s0">if </span>(arePermissionGranted()) {
+            initViews();
+            viewToConnectingState();
+
+            OPENVIDU_URL = openvidu_url.getText().toString();
+            OPENVIDU_SECRET = openvidu_secret.getText().toString();
+            httpClient = <span class="s0">new </span>CustomHttpClient(OPENVIDU_URL,
+                    <span class="s4">&quot;Basic &quot; </span>+ android.util.Base64.encodeToString((<span class="s4">&quot;OPENVIDUAPP:&quot;</span>
+                            + OPENVIDU_SECRET).getBytes(), android.util.Base64.DEFAULT).trim());
+
+            String sessionId = session_name.getText().toString();
+            getToken(sessionId);
+        } <span class="s0">else </span>{
+            DialogFragment permissionsFragment = <span class="s0">new </span>PermissionsDialogFragment();
+            permissionsFragment.show(getSupportFragmentManager(), <span class="s4">&quot;Permissions Fragment&quot;</span>);
+        }
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* Http</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">sessionId</span>
+     <span class="s2">*/</span>
+    <span class="s0">private void </span>getToken(String sessionId) {
+        <span class="s0">try </span>{
+            <span class="s2">// Session Request</span>
+            RequestBody sessionBody = RequestBody.create(
+                    MediaType.parse(<span class="s4">&quot;application/json; charset=utf-8&quot;</span>),
+                    <span class="s4">&quot;{</span><span class="s0">\&quot;</span><span class="s4">customSessionId</span><span class="s0">\&quot;</span><span class="s4">: </span><span class="s0">\&quot;</span><span class="s4">&quot; </span>+ sessionId + <span class="s4">&quot;</span><span class="s0">\&quot;</span><span class="s4">}&quot;</span>);
+            <span class="s0">this</span>.httpClient.httpCall(<span class="s4">&quot;/api/sessions&quot;</span>, <span class="s4">&quot;POST&quot;</span>,
+                    <span class="s4">&quot;application/json&quot;</span>, sessionBody, <span class="s0">new </span>Callback() {
+
+                @Override
+                <span class="s0">public void </span>onResponse(@NotNull Call call, @NotNull Response response) <span class="s0">throws </span>IOException {
+                    Log.d(TAG, <span class="s4">&quot;responseString: &quot; </span>+ response.body().string());
+
+                    <span class="s2">// Token Request</span>
+                    RequestBody tokenBody = RequestBody.create(
+                            MediaType.parse(<span class="s4">&quot;application/json; charset=utf-8&quot;</span>),
+                            <span class="s4">&quot;{</span><span class="s0">\&quot;</span><span class="s4">session</span><span class="s0">\&quot;</span><span class="s4">: </span><span class="s0">\&quot;</span><span class="s4">&quot; </span>+ sessionId + <span class="s4">&quot;</span><span class="s0">\&quot;</span><span class="s4">}&quot;</span>);
+                    httpClient.httpCall(<span class="s4">&quot;/api/tokens&quot;</span>, <span class="s4">&quot;POST&quot;</span>,
+                            <span class="s4">&quot;application/json&quot;</span>, tokenBody, <span class="s0">new </span>Callback() {
+
+                        @Override
+                        <span class="s0">public void </span>onResponse(@NotNull Call call, @NotNull Response response) {
+                            String responseString = <span class="s0">null</span>;
+                            <span class="s0">try </span>{
+                                responseString = response.body().string();
+                            } <span class="s0">catch </span>(IOException e) {
+                                Log.e(TAG, <span class="s4">&quot;Error getting body&quot;</span>, e);
+                            }
+                            Log.d(TAG, <span class="s4">&quot;responseString2: &quot; </span>+ responseString);
+                            JSONObject tokenJsonObject = <span class="s0">null</span>;
+                            String token = <span class="s0">null</span>;
+                            <span class="s0">try </span>{
+                                tokenJsonObject = <span class="s0">new </span>JSONObject(responseString);
+                                token = tokenJsonObject.getString(<span class="s4">&quot;token&quot;</span>);
+                            } <span class="s0">catch </span>(JSONException e) {
+                                e.printStackTrace();
+                            }
+                            getTokenSuccess(token, sessionId);
+                        }
+
+                        @Override
+                        <span class="s0">public void </span>onFailure(@NotNull Call call, @NotNull IOException e) {
+                            Log.e(TAG, <span class="s4">&quot;Error POST /api/tokens&quot;</span>, e);
+                            connectionError();
+                        }
+                    });
+                }
+
+                @Override
+                <span class="s0">public void </span>onFailure(@NotNull Call call, @NotNull IOException e) {
+                    Log.e(TAG, <span class="s4">&quot;Error POST /api/sessions&quot;</span>, e);
+                    connectionError();
+                }
+            });
+        } <span class="s0">catch </span>(IOException e) {
+            Log.e(TAG, <span class="s4">&quot;Error getting token&quot;</span>, e);
+            e.printStackTrace();
+            connectionError();
+        }
+    }
+
+    <span class="s0">private void </span>getTokenSuccess(String token, String sessionId) {
+        <span class="s2">// Initialize our session</span>
+        session = <span class="s0">new </span>Session(sessionId, token, views_container, <span class="s0">this</span>);
+
+        <span class="s2">// Initialize our local participant and start local camera</span>
+        String participantName = participant_name.getText().toString();
+        <span class="s2">//本地显示媒体视图，实例化LocalParticipant</span>
+        LocalParticipant localParticipant = <span class="s0">new </span>LocalParticipant(participantName,
+                session, <span class="s0">this</span>.getApplicationContext(), localVideoView);
+        <span class="s2">//打开摄像头</span>
+        localParticipant.startCamera();
+        runOnUiThread(() -&gt; {
+            <span class="s2">// Update local participant view</span>
+            main_participant.setText(participant_name.getText().toString());
+            main_participant.setPadding(<span class="s3">20</span>, <span class="s3">3</span>, <span class="s3">20</span>, <span class="s3">3</span>);
+        });
+
+        <span class="s2">// Initialize and connect the websocket to OpenVidu Server</span>
+        startWebSocket();
+    }
+
+    <span class="s0">private void </span>startWebSocket() {
+        CustomWebSocket webSocket = <span class="s0">new </span>CustomWebSocket(session, OPENVIDU_URL, <span class="s0">this</span>);
+        webSocket.execute();
+        session.setWebSocket(webSocket);
+    }
+
+    <span class="s0">private void </span>connectionError() {
+        Runnable myRunnable = () -&gt; {
+            Toast toast = Toast.makeText(<span class="s0">this</span>,
+                    <span class="s4">&quot;Error connecting to &quot; </span>+ OPENVIDU_URL, Toast.LENGTH_LONG);
+            toast.show();
+            viewToDisconnectedState();
+        };
+        <span class="s0">new </span>Handler(<span class="s0">this</span>.getMainLooper()).post(myRunnable);
+    }
+
+    <span class="s0">private void </span>initViews() {
+        EglBase rootEglBase = EglBase.create();
+        localVideoView.init(rootEglBase.getEglBaseContext(), <span class="s0">null</span>);
+        localVideoView.setMirror(<span class="s0">true</span>);
+        localVideoView.setEnableHardwareScaler(<span class="s0">true</span>);
+        localVideoView.setZOrderMediaOverlay(<span class="s0">true</span>);
+    }
+
+    <span class="s0">public void </span>viewToDisconnectedState() {
+        runOnUiThread(() -&gt; {
+            localVideoView.clearImage();
+            localVideoView.release();
+            start_finish_call.setText(getResources().getString(R.string.start_button));
+            start_finish_call.setEnabled(<span class="s0">true</span>);
+            openvidu_url.setEnabled(<span class="s0">true</span>);
+            openvidu_url.setFocusableInTouchMode(<span class="s0">true</span>);
+            openvidu_secret.setEnabled(<span class="s0">true</span>);
+            openvidu_secret.setFocusableInTouchMode(<span class="s0">true</span>);
+            session_name.setEnabled(<span class="s0">true</span>);
+            session_name.setFocusableInTouchMode(<span class="s0">true</span>);
+            participant_name.setEnabled(<span class="s0">true</span>);
+            participant_name.setFocusableInTouchMode(<span class="s0">true</span>);
+            main_participant.setText(<span class="s0">null</span>);
+            main_participant.setPadding(<span class="s3">0</span>, <span class="s3">0</span>, <span class="s3">0</span>, <span class="s3">0</span>);
+        });
+    }
+
+    <span class="s0">public void </span>viewToConnectingState() {
+        runOnUiThread(() -&gt; {
+            start_finish_call.setEnabled(<span class="s0">false</span>);
+            openvidu_url.setEnabled(<span class="s0">false</span>);
+            openvidu_url.setFocusable(<span class="s0">false</span>);
+            openvidu_secret.setEnabled(<span class="s0">false</span>);
+            openvidu_secret.setFocusable(<span class="s0">false</span>);
+            session_name.setEnabled(<span class="s0">false</span>);
+            session_name.setFocusable(<span class="s0">false</span>);
+            participant_name.setEnabled(<span class="s0">false</span>);
+            participant_name.setFocusable(<span class="s0">false</span>);
+        });
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* CustomWebSocket.handleServerResponse</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>viewToConnectedState() {
+        runOnUiThread(() -&gt; {
+            start_finish_call.setText(getResources().getString(R.string.hang_up));
+            start_finish_call.setEnabled(<span class="s0">true</span>);
+        });
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 由CustomWebSocket进行操作</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">remoteParticipant</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>createRemoteParticipantVideo(<span class="s0">final </span>RemoteParticipant remoteParticipant) {
+        Handler mainHandler = <span class="s0">new </span>Handler(<span class="s0">this</span>.getMainLooper());
+        Runnable myRunnable = () -&gt; {
+            View rowView = <span class="s0">this</span>.getLayoutInflater().inflate(R.layout.peer_video, <span class="s0">null</span>);
+            LinearLayout.LayoutParams lp =
+                    <span class="s0">new </span>LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(<span class="s3">0</span>, <span class="s3">0</span>, <span class="s3">0</span>, <span class="s3">20</span>);
+            rowView.setLayoutParams(lp);
+            <span class="s0">int </span>rowId = View.generateViewId();
+            rowView.setId(rowId);
+            views_container.addView(rowView);
+            SurfaceViewRenderer videoView = (SurfaceViewRenderer) ((ViewGroup) rowView).getChildAt(<span class="s3">0</span>);
+            remoteParticipant.setVideoView(videoView);
+            videoView.setMirror(<span class="s0">false</span>);
+            EglBase rootEglBase = EglBase.create();
+            videoView.init(rootEglBase.getEglBaseContext(), <span class="s0">null</span>);
+            videoView.setZOrderMediaOverlay(<span class="s0">true</span>);
+            View textView = ((ViewGroup) rowView).getChildAt(<span class="s3">1</span>);
+            remoteParticipant.setParticipantNameText((TextView) textView);
+            remoteParticipant.setView(rowView);
+
+            remoteParticipant.getParticipantNameText().setText(remoteParticipant.getParticipantName());
+            remoteParticipant.getParticipantNameText().setPadding(<span class="s3">20</span>, <span class="s3">3</span>, <span class="s3">20</span>, <span class="s3">3</span>);
+        };
+        mainHandler.post(myRunnable);
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 由Session的createRemotePeerConnection</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">stream</span>
+     <span class="s2">* </span><span class="s5">@param </span><span class="s2">remoteParticipant</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>setRemoteMediaStream(MediaStream stream, <span class="s0">final </span>RemoteParticipant remoteParticipant) {
+        <span class="s0">final </span>VideoTrack videoTrack = stream.videoTracks.get(<span class="s3">0</span>);
+        videoTrack.addSink(remoteParticipant.getVideoView());
+        runOnUiThread(() -&gt; {
+            remoteParticipant.getVideoView().setVisibility(View.VISIBLE);
+        });
+    }
+
+    <span class="s2">/**</span>
+     <span class="s2">* 本地调用</span>
+     <span class="s2">*/</span>
+    <span class="s0">public void </span>leaveSession() {
+        <span class="s0">this</span>.session.leaveSession();
+        <span class="s0">this</span>.httpClient.dispose();
+        viewToDisconnectedState();
+    }
+
+    <span class="s0">private boolean </span>arePermissionGranted() {
+        <span class="s0">return </span>(ContextCompat.checkSelfPermission(<span class="s0">this</span>,
+                Manifest.permission.CAMERA) != PackageManager.PERMISSION_DENIED) &amp;&amp;
+                (ContextCompat.checkSelfPermission(<span class="s0">this</span>,
+                        Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_DENIED);
+    }
+
+    @Override
+    <span class="s0">protected void </span>onDestroy() {
+        leaveSession();
+        <span class="s0">super</span>.onDestroy();
+    }
+
+    @Override
+    <span class="s0">public void </span>onBackPressed() {
+        leaveSession();
+        <span class="s0">super</span>.onBackPressed();
+    }
+
+    @Override
+    <span class="s0">protected void </span>onStop() {
+        leaveSession();
+        <span class="s0">super</span>.onStop();
+    }
+
+}
+</pre>
+</body>
+</html>

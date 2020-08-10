@@ -1,0 +1,65 @@
+<html>
+<head>
+<title>RemoteParticipant.java</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #000080; font-weight: bold;}
+.s1 { color: #000000;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+RemoteParticipant.java</font>
+</center></td></tr></table>
+<pre><span class="s0">package </span>io.openvidu.openvidu_android.openvidu;
+
+<span class="s0">import </span>android.view.View;
+<span class="s0">import </span>android.widget.TextView;
+
+<span class="s0">import </span>org.webrtc.SurfaceViewRenderer;
+
+<span class="s0">public class </span>RemoteParticipant <span class="s0">extends </span>Participant {
+
+    <span class="s0">private </span>View view;
+    <span class="s0">private </span>SurfaceViewRenderer videoView;
+    <span class="s0">private </span>TextView participantNameText;
+
+    <span class="s0">public </span>RemoteParticipant(String connectionId, String participantName, Session session) {
+        <span class="s0">super</span>(connectionId, participantName, session);
+        <span class="s0">this</span>.session.addRemoteParticipant(<span class="s0">this</span>);
+    }
+
+    <span class="s0">public </span>View getView() {
+        <span class="s0">return this</span>.view;
+    }
+
+    <span class="s0">public void </span>setView(View view) {
+        <span class="s0">this</span>.view = view;
+    }
+
+    <span class="s0">public </span>SurfaceViewRenderer getVideoView() {
+        <span class="s0">return this</span>.videoView;
+    }
+
+    <span class="s0">public void </span>setVideoView(SurfaceViewRenderer videoView) {
+        <span class="s0">this</span>.videoView = videoView;
+    }
+
+    <span class="s0">public </span>TextView getParticipantNameText() {
+        <span class="s0">return this</span>.participantNameText;
+    }
+
+    <span class="s0">public void </span>setParticipantNameText(TextView participantNameText) {
+        <span class="s0">this</span>.participantNameText = participantNameText;
+    }
+
+    @Override
+    <span class="s0">public void </span>dispose() {
+        <span class="s0">super</span>.dispose();
+    }
+}
+</pre>
+</body>
+</html>
